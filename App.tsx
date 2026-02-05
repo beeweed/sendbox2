@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useE2BSandbox } from './hooks/useE2BSandbox';
 import { FileTree } from './components/FileTree';
@@ -16,7 +16,11 @@ import {
   TerminalSquare,
   Globe,
   PanelRightOpen,
-  PanelRightClose
+  PanelRightClose,
+  RefreshCw,
+  Upload,
+  Download,
+  Loader2
 } from 'lucide-react';
 
 type RightPanelTab = 'ai' | 'preview';
@@ -27,9 +31,10 @@ const App = () => {
     files,
     activeFileId,
     openFiles,
-    isSyncing,
+    isSyncing: isLocalSyncing,
     createFile,
     updateFileContent,
+    deleteFileItem,
     toggleFolder,
     expandFolder,
     openFile,
@@ -37,6 +42,8 @@ const App = () => {
     setActiveFileId,
     getActiveFile,
     setSyncCallbacks,
+    getAllFiles,
+    replaceWithSandboxFiles,
   } = useFileSystem();
 
   const {
@@ -45,6 +52,7 @@ const App = () => {
     isConnecting,
     sandboxId,
     error: sandboxError,
+    isSyncing: isSandboxSyncing,
     setApiKey,
     createSandbox,
     createTerminal,
@@ -52,7 +60,11 @@ const App = () => {
     resizeTerminal,
     writeFile,
     makeDirectory,
+    deleteFile,
     disconnectSandbox,
+    syncLocalToSandbox,
+    syncSandboxToLocal,
+    onFileChange,
   } = useE2BSandbox();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -60,8 +72,11 @@ const App = () => {
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('preview');
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
   const [creationState, setCreationState] = useState<{ parentId: string; type: 'file' | 'folder' } | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
   
   const activeFile = getActiveFile();
+  const isSyncing = isLocalSyncing || isSandboxSyncing;
 
   // Set up file sync callbacks when sandbox is connected
   useEffect(() => {
@@ -69,9 +84,71 @@ const App = () => {
       setSyncCallbacks({
         writeFile,
         makeDirectory,
+        deleteFile,
       });
     }
-  }, [isConnected, writeFile, makeDirectory, setSyncCallbacks]);
+  }, [isConnected, writeFile, makeDirectory, deleteFile, setSyncCallbacks]);
+
+  // Subscribe to file change events from sandbox
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const unsubscribe = onFileChange((event) => {
+      console.log('File change event:', event);
+      // Auto-sync on file changes (debounced via the watcher interval)
+      if (event.type === 'created' || event.type === 'modified') {
+        // You could trigger an auto-sync here if needed
+        // For now, we'll just update the UI to show changes detected
+        setSyncStatus('idle');
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isConnected, onFileChange]);
+
+  // Sync local files to sandbox when first connected
+  const handleInitialSync = useCallback(async () => {
+    if (!isConnected) return;
+    
+    setSyncStatus('syncing');
+    const allFiles = getAllFiles();
+    const success = await syncLocalToSandbox(allFiles);
+    setSyncStatus(success ? 'success' : 'error');
+    if (success) {
+      setLastSyncTime(new Date());
+    }
+  }, [isConnected, getAllFiles, syncLocalToSandbox]);
+
+  // Push local files to sandbox
+  const handlePushToSandbox = useCallback(async () => {
+    setSyncStatus('syncing');
+    const allFiles = getAllFiles();
+    const success = await syncLocalToSandbox(allFiles);
+    setSyncStatus(success ? 'success' : 'error');
+    if (success) {
+      setLastSyncTime(new Date());
+    }
+  }, [getAllFiles, syncLocalToSandbox]);
+
+  // Pull files from sandbox to local
+  const handlePullFromSandbox = useCallback(async () => {
+    setSyncStatus('syncing');
+    const sandboxFiles = await syncSandboxToLocal();
+    if (sandboxFiles.length > 0) {
+      replaceWithSandboxFiles(sandboxFiles);
+      setSyncStatus('success');
+      setLastSyncTime(new Date());
+    } else {
+      setSyncStatus('error');
+    }
+  }, [syncSandboxToLocal, replaceWithSandboxFiles]);
+
+  // Full bidirectional sync
+  const handleFullSync = useCallback(async () => {
+    await handlePullFromSandbox();
+  }, [handlePullFromSandbox]);
 
   const handleStartCreating = (parentId: string, type: 'file' | 'folder') => {
     setCreationState({ parentId, type });
@@ -105,6 +182,54 @@ const App = () => {
             onCreateSandbox={createSandbox}
             onDisconnect={disconnectSandbox}
           />
+
+          {/* Sync Controls */}
+          {isConnected && (
+            <div className="px-3 py-2 border-b border-[#333]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-gray-400 uppercase tracking-wide">File Sync</span>
+                {isSyncing && (
+                  <Loader2 size={12} className="animate-spin text-blue-400" />
+                )}
+                {syncStatus === 'success' && !isSyncing && (
+                  <span className="text-[10px] text-green-400">✓ Synced</span>
+                )}
+              </div>
+              <div className="flex space-x-1">
+                <button
+                  onClick={handlePushToSandbox}
+                  disabled={isSyncing}
+                  className="flex-1 flex items-center justify-center px-2 py-1.5 bg-[#333] hover:bg-[#444] rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Push local files to sandbox"
+                >
+                  <Upload size={12} className="mr-1" />
+                  Push
+                </button>
+                <button
+                  onClick={handlePullFromSandbox}
+                  disabled={isSyncing}
+                  className="flex-1 flex items-center justify-center px-2 py-1.5 bg-[#333] hover:bg-[#444] rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Pull files from sandbox"
+                >
+                  <Download size={12} className="mr-1" />
+                  Pull
+                </button>
+                <button
+                  onClick={handleFullSync}
+                  disabled={isSyncing}
+                  className="flex items-center justify-center px-2 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Sync files with sandbox"
+                >
+                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                </button>
+              </div>
+              {lastSyncTime && (
+                <p className="text-[10px] text-gray-500 mt-1.5 text-center">
+                  Last sync: {lastSyncTime.toLocaleTimeString()}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Sidebar Header */}
           <div className="h-12 flex items-center justify-between px-4 border-b border-[#333]">
@@ -185,7 +310,10 @@ const App = () => {
           <div className="flex items-center space-x-2 ml-4">
              {/* Syncing Indicator */}
              {isSyncing && (
-               <span className="text-[10px] text-yellow-400 animate-pulse">Syncing...</span>
+               <span className="text-[10px] text-yellow-400 animate-pulse flex items-center">
+                 <Loader2 size={10} className="animate-spin mr-1" />
+                 Syncing...
+               </span>
              )}
              
              {/* Terminal Toggle */}
@@ -252,6 +380,7 @@ const App = () => {
                   onCreateTerminal={createTerminal}
                   onSendInput={sendTerminalInput}
                   onResize={resizeTerminal}
+                  onCommandComplete={handlePullFromSandbox}
                 />
               </div>
             )}
@@ -314,6 +443,12 @@ const App = () => {
                <span className="flex items-center">
                  <span className="w-2 h-2 rounded-full bg-green-400 mr-1.5 animate-pulse"></span>
                  E2B Connected
+               </span>
+             )}
+             {isSyncing && (
+               <span className="flex items-center text-yellow-300">
+                 <RefreshCw size={10} className="animate-spin mr-1" />
+                 Syncing...
                </span>
              )}
           </div>

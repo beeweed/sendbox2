@@ -5,6 +5,7 @@ import { INITIAL_FILES } from '../constants';
 interface SyncCallbacks {
   writeFile?: (path: string, content: string) => Promise<boolean>;
   makeDirectory?: (path: string) => Promise<boolean>;
+  deleteFile?: (path: string) => Promise<boolean>;
 }
 
 export const useFileSystem = () => {
@@ -19,15 +20,16 @@ export const useFileSystem = () => {
     syncCallbacksRef.current = callbacks;
   }, []);
 
-  const getFilePath = useCallback((fileId: string): string => {
-    const file = files.find(f => f.id === fileId);
+  const getFilePath = useCallback((fileId: string, fileList?: FileSystemItem[]): string => {
+    const currentFiles = fileList || files;
+    const file = currentFiles.find(f => f.id === fileId);
     if (!file) return '';
     
     const pathParts: string[] = [file.name];
     let currentParentId = file.parentId;
     
     while (currentParentId && currentParentId !== 'root') {
-      const parent = files.find(f => f.id === currentParentId);
+      const parent = currentFiles.find(f => f.id === currentParentId);
       if (parent) {
         pathParts.unshift(parent.name);
         currentParentId = parent.parentId;
@@ -107,6 +109,47 @@ export const useFileSystem = () => {
     }
   }, [files, getFilePath]);
 
+  const deleteFileItem = useCallback(async (id: string) => {
+    const file = files.find(f => f.id === id);
+    if (!file) return;
+
+    const filePath = getFilePath(id);
+    
+    // Get all descendants if it's a folder
+    const getDescendants = (parentId: string): string[] => {
+      const children = files.filter(f => f.parentId === parentId);
+      let descendants: string[] = [];
+      for (const child of children) {
+        descendants.push(child.id);
+        if (child.type === 'folder') {
+          descendants = [...descendants, ...getDescendants(child.id)];
+        }
+      }
+      return descendants;
+    };
+
+    const idsToDelete = [id, ...getDescendants(id)];
+    
+    // Remove from open files
+    setOpenFiles(prev => prev.filter(fid => !idsToDelete.includes(fid)));
+    
+    // Update active file if needed
+    if (activeFileId && idsToDelete.includes(activeFileId)) {
+      const remainingOpen = openFiles.filter(fid => !idsToDelete.includes(fid));
+      setActiveFileId(remainingOpen.length > 0 ? remainingOpen[remainingOpen.length - 1] : null);
+    }
+    
+    // Remove from files
+    setFiles(prev => prev.filter(f => !idsToDelete.includes(f.id)));
+    
+    // Sync delete to E2B
+    if (syncCallbacksRef.current.deleteFile && filePath) {
+      setIsSyncing(true);
+      await syncCallbacksRef.current.deleteFile(filePath);
+      setIsSyncing(false);
+    }
+  }, [files, activeFileId, openFiles, getFilePath]);
+
   const toggleFolder = useCallback((id: string) => {
     setFiles(prev => prev.map(f => f.id === id ? { ...f, isOpen: !f.isOpen } : f));
   }, []);
@@ -148,6 +191,56 @@ export const useFileSystem = () => {
     setActiveFileId(null);
   }, []);
 
+  // Replace all files with new files from E2B sync
+  const replaceWithSandboxFiles = useCallback((newFiles: FileSystemItem[]) => {
+    // Keep the root folder and add new files
+    const root = INITIAL_FILES.find(f => f.id === 'root');
+    setFiles([root!, ...newFiles]);
+    setOpenFiles([]);
+    setActiveFileId(null);
+  }, []);
+
+  // Merge files from E2B sandbox with local files (smart merge)
+  const mergeWithSandboxFiles = useCallback((sandboxFiles: FileSystemItem[]) => {
+    setFiles(prev => {
+      const existingPaths = new Map<string, string>();
+      
+      // Build map of existing file paths to IDs
+      for (const file of prev) {
+        const path = getFilePath(file.id, prev);
+        existingPaths.set(path, file.id);
+      }
+
+      const newFiles = [...prev];
+      
+      for (const sandboxFile of sandboxFiles) {
+        // Check if file already exists by comparing paths
+        const sandboxPath = getFilePath(sandboxFile.id, [{ id: 'root', parentId: null, name: 'root', type: 'folder' }, ...sandboxFiles]);
+        
+        if (!existingPaths.has(sandboxPath)) {
+          // File doesn't exist locally, add it
+          newFiles.push(sandboxFile);
+        } else {
+          // File exists, update content if it's a file
+          const existingId = existingPaths.get(sandboxPath);
+          if (existingId && sandboxFile.type === 'file') {
+            const idx = newFiles.findIndex(f => f.id === existingId);
+            if (idx !== -1 && sandboxFile.content !== undefined) {
+              newFiles[idx] = { ...newFiles[idx], content: sandboxFile.content };
+            }
+          }
+        }
+      }
+
+      return newFiles;
+    });
+  }, [getFilePath]);
+
+  // Get all files for syncing to E2B
+  const getAllFiles = useCallback(() => {
+    return files;
+  }, [files]);
+
   return {
     files,
     activeFileId,
@@ -156,6 +249,7 @@ export const useFileSystem = () => {
     getChildren,
     createFile,
     updateFileContent,
+    deleteFileItem,
     toggleFolder,
     expandFolder,
     openFile,
@@ -165,5 +259,9 @@ export const useFileSystem = () => {
     setSyncCallbacks,
     getFilePath,
     resetFiles,
+    replaceWithSandboxFiles,
+    mergeWithSandboxFiles,
+    getAllFiles,
+    setFiles,
   };
 };

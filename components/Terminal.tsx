@@ -1,13 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { TerminalSquare, Loader2, X, Maximize2, Minimize2 } from 'lucide-react';
+import { TerminalSquare, Loader2, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 
 interface TerminalProps {
   isConnected: boolean;
   onCreateTerminal: (cols: number, rows: number, onData: (data: Uint8Array) => void) => Promise<any>;
   onSendInput: (data: string) => Promise<void>;
   onResize: (cols: number, rows: number) => Promise<void>;
+  onCommandComplete?: () => void;
 }
 
 export const Terminal: React.FC<TerminalProps> = ({
@@ -15,6 +16,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   onCreateTerminal,
   onSendInput,
   onResize,
+  onCommandComplete,
 }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -22,6 +24,26 @@ export const Terminal: React.FC<TerminalProps> = ({
   const [isTerminalReady, setIsTerminalReady] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [autoSync, setAutoSync] = useState(true);
+  
+  // Track command execution for auto-sync
+  const commandBufferRef = useRef<string>('');
+  const lastNewlineTimeRef = useRef<number>(0);
+  const syncDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced sync after command completion
+  const triggerSync = useCallback(() => {
+    if (!autoSync || !onCommandComplete) return;
+    
+    if (syncDebounceRef.current) {
+      clearTimeout(syncDebounceRef.current);
+    }
+    
+    // Wait 1 second after last output to sync (indicates command likely completed)
+    syncDebounceRef.current = setTimeout(() => {
+      onCommandComplete();
+    }, 1500);
+  }, [autoSync, onCommandComplete]);
 
   useEffect(() => {
     if (!isConnected || !terminalRef.current || xtermRef.current) {
@@ -79,12 +101,39 @@ export const Terminal: React.FC<TerminalProps> = ({
       // Create PTY in sandbox
       const terminal = await onCreateTerminal(cols, rows, (data: Uint8Array) => {
         xterm.write(data);
+        
+        // Check for command completion (prompt patterns)
+        const text = new TextDecoder().decode(data);
+        
+        // Look for common shell prompt patterns that indicate command completed
+        const promptPatterns = [
+          /\$\s*$/,           // $ prompt
+          />\s*$/,            // > prompt
+          /#\s*$/,            // # prompt (root)
+          /\]\s*$/,           // ] prompt (some shells)
+          /\~\]\$/,           // ~]$ prompt
+        ];
+        
+        const hasPrompt = promptPatterns.some(pattern => pattern.test(text));
+        
+        if (hasPrompt) {
+          // Prompt detected, trigger sync after debounce
+          triggerSync();
+        }
       });
 
       if (terminal) {
         // Handle user input
         xterm.onData((data) => {
           onSendInput(data);
+          
+          // Track Enter key presses
+          if (data === '\r' || data === '\n') {
+            commandBufferRef.current = '';
+            lastNewlineTimeRef.current = Date.now();
+          } else {
+            commandBufferRef.current += data;
+          }
         });
 
         setIsTerminalReady(true);
@@ -100,8 +149,11 @@ export const Terminal: React.FC<TerminalProps> = ({
         xtermRef.current.dispose();
         xtermRef.current = null;
       }
+      if (syncDebounceRef.current) {
+        clearTimeout(syncDebounceRef.current);
+      }
     };
-  }, [isConnected, onCreateTerminal, onSendInput]);
+  }, [isConnected, onCreateTerminal, onSendInput, triggerSync]);
 
   // Handle resize
   useEffect(() => {
@@ -126,6 +178,12 @@ export const Terminal: React.FC<TerminalProps> = ({
     };
   }, [isTerminalReady, onResize, isExpanded]);
 
+  const handleManualSync = () => {
+    if (onCommandComplete) {
+      onCommandComplete();
+    }
+  };
+
   if (!isConnected) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-gray-500 bg-[#1e1e1e]">
@@ -146,6 +204,24 @@ export const Terminal: React.FC<TerminalProps> = ({
           )}
         </div>
         <div className="flex items-center space-x-2">
+          {/* Auto-sync toggle */}
+          <button
+            onClick={() => setAutoSync(!autoSync)}
+            className={`text-[10px] px-2 py-0.5 rounded ${autoSync ? 'bg-green-600/20 text-green-400' : 'bg-gray-600/20 text-gray-400'}`}
+            title={autoSync ? 'Auto-sync enabled' : 'Auto-sync disabled'}
+          >
+            Auto-sync: {autoSync ? 'ON' : 'OFF'}
+          </button>
+          
+          {/* Manual sync button */}
+          <button
+            onClick={handleManualSync}
+            className="text-gray-400 hover:text-white p-1"
+            title="Sync files now"
+          >
+            <RefreshCw size={12} />
+          </button>
+          
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="text-gray-400 hover:text-white p-1"
