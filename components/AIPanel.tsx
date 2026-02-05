@@ -85,15 +85,7 @@ export const AIPanel: React.FC<AIPanelProps> = ({ isOpen, onClose, activeFile, o
   if (!isOpen) return null;
 
   return (
-    <div className="w-80 bg-[#252526] border-l border-[#333] flex flex-col h-full absolute right-0 top-0 z-10 shadow-xl">
-      <div className="h-12 border-b border-[#333] flex items-center justify-between px-4 bg-[#2d2d2d]">
-        <span className="font-bold text-gray-300 flex items-center">
-            <Bot size={18} className="mr-2 text-blue-400"/> AI Assistant
-        </span>
-        <button onClick={onClose} className="text-gray-400 hover:text-white">
-          <X size={18} />
-        </button>
-      </div>
+    <div className="bg-[#252526] flex flex-col h-full w-full">
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (

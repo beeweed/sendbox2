@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gemini Code Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
     <style>
       /* Custom scrollbar for a more IDE-like feel */
       ::-webkit-scrollbar {
@@ -25,20 +26,14 @@
         background-color: #0f0f10;
         color: #e0e0e0;
       }
+      /* XTerm container styling */
+      .xterm {
+        padding: 4px;
+      }
+      .xterm-viewport {
+        overflow-y: auto !important;
+      }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
-    "xterm-addon-fit": "https://esm.sh/xterm-addon-fit@^0.8.0",
-    "xterm": "https://esm.sh/xterm@^5.3.0"
-  }
-}
-</script>
 <link rel="stylesheet" href="/index.css">
 </head>
   <body>
