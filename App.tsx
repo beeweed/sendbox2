@@ -77,10 +77,11 @@ const App = () => {
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [rightPanelWidth, setRightPanelWidth] = useState(450);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(256);
+  const [isResizing, setIsResizing] = useState<'sidebar' | 'right' | 'bottom' | null>(null);
   
   // Resize refs
-  const isResizingRef = useRef<'sidebar' | 'right' | 'bottom' | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const editorAreaRef = useRef<HTMLDivElement>(null);
   
   const activeFile = getActiveFile();
   const isSyncing = isLocalSyncing || isSandboxSyncing;
@@ -174,50 +175,57 @@ const App = () => {
   };
 
   // Resize handlers
-  const handleMouseDown = useCallback((panel: 'sidebar' | 'right' | 'bottom') => {
-    isResizingRef.current = panel;
-    document.body.style.cursor = panel === 'bottom' ? 'row-resize' : 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    isResizingRef.current = null;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }, []);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizingRef.current || !containerRef.current) return;
-
-    const containerRect = containerRef.current.getBoundingClientRect();
-
-    if (isResizingRef.current === 'sidebar') {
-      const newWidth = e.clientX - containerRect.left;
-      setSidebarWidth(Math.max(180, Math.min(500, newWidth)));
-    } else if (isResizingRef.current === 'right') {
-      const newWidth = containerRect.right - e.clientX;
-      setRightPanelWidth(Math.max(250, Math.min(800, newWidth)));
-    } else if (isResizingRef.current === 'bottom') {
-      const editorArea = containerRef.current.querySelector('[data-editor-area]');
-      if (editorArea) {
-        const editorRect = editorArea.getBoundingClientRect();
-        const newHeight = editorRect.bottom - e.clientY;
-        setBottomPanelHeight(Math.max(100, Math.min(500, newHeight)));
-      }
-    }
+  const startResize = useCallback((panel: 'sidebar' | 'right' | 'bottom') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(panel);
   }, []);
 
   useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+
+      const containerRect = containerRef.current.getBoundingClientRect();
+
+      if (isResizing === 'sidebar') {
+        const newWidth = e.clientX - containerRect.left;
+        setSidebarWidth(Math.max(180, Math.min(500, newWidth)));
+      } else if (isResizing === 'right') {
+        const newWidth = containerRect.right - e.clientX;
+        setRightPanelWidth(Math.max(250, Math.min(800, newWidth)));
+      } else if (isResizing === 'bottom' && editorAreaRef.current) {
+        const editorRect = editorAreaRef.current.getBoundingClientRect();
+        const newHeight = editorRect.bottom - e.clientY;
+        setBottomPanelHeight(Math.max(100, Math.min(500, newHeight)));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(null);
+    };
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [handleMouseMove, handleMouseUp]);
+  }, [isResizing]);
+
+  const resizeCursor = isResizing === 'bottom' ? 'row-resize' : isResizing ? 'col-resize' : undefined;
 
   return (
-    <div ref={containerRef} className="flex h-screen w-screen bg-[#1e1e1e] text-gray-300 font-sans overflow-hidden">
+    <div 
+      ref={containerRef} 
+      className="flex h-screen w-screen bg-[#1e1e1e] text-gray-300 font-sans overflow-hidden"
+      style={{ cursor: resizeCursor }}
+    >
+      {/* Resize Overlay - prevents iframe from capturing mouse events */}
+      {isResizing && (
+        <div className="fixed inset-0 z-50" style={{ cursor: resizeCursor }} />
+      )}
       {/* Sidebar */}
       {isSidebarOpen && (
         <div 
@@ -320,9 +328,14 @@ const App = () => {
           
           {/* Sidebar Resize Handle */}
           <div
-            onMouseDown={() => handleMouseDown('sidebar')}
-            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 active:bg-blue-500 transition-colors z-10"
-          />
+            onMouseDown={startResize('sidebar')}
+            className={`absolute top-0 -right-1 w-3 h-full cursor-col-resize z-20 group flex items-center justify-center
+              ${isResizing === 'sidebar' ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+          >
+            <div className={`w-0.5 h-8 rounded-full transition-colors
+              ${isResizing === 'sidebar' ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'}`} 
+            />
+          </div>
         </div>
       )}
 
@@ -410,7 +423,7 @@ const App = () => {
         {/* Center Area */}
         <div className="flex-1 flex overflow-hidden">
           {/* Editor + Bottom Panel */}
-          <div className="flex-1 flex flex-col min-w-0" data-editor-area>
+          <div ref={editorAreaRef} className="flex-1 flex flex-col min-w-0">
             {/* Editor */}
             <div className="flex-1 overflow-hidden" style={{ minHeight: isBottomPanelOpen ? '100px' : '100%' }}>
               <Editor 
@@ -424,9 +437,14 @@ const App = () => {
               <div className="border-t border-[#333] flex-shrink-0 relative" style={{ height: bottomPanelHeight }}>
                 {/* Bottom Panel Resize Handle */}
                 <div
-                  onMouseDown={() => handleMouseDown('bottom')}
-                  className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-blue-500 active:bg-blue-500 transition-colors z-10"
-                />
+                  onMouseDown={startResize('bottom')}
+                  className={`absolute -top-1.5 left-0 right-0 h-3 cursor-row-resize z-20 group flex items-center justify-center
+                    ${isResizing === 'bottom' ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+                >
+                  <div className={`h-0.5 w-12 rounded-full transition-colors
+                    ${isResizing === 'bottom' ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'}`} 
+                  />
+                </div>
                 <Terminal
                   isConnected={isConnected}
                   onCreateTerminal={createTerminal}
@@ -446,9 +464,14 @@ const App = () => {
             >
               {/* Right Panel Resize Handle */}
               <div
-                onMouseDown={() => handleMouseDown('right')}
-                className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-blue-500 active:bg-blue-500 transition-colors z-10"
-              />
+                onMouseDown={startResize('right')}
+                className={`absolute top-0 -left-1 w-3 h-full cursor-col-resize z-20 group flex items-center justify-center
+                  ${isResizing === 'right' ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+              >
+                <div className={`w-0.5 h-8 rounded-full transition-colors
+                  ${isResizing === 'right' ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'}`} 
+                />
+              </div>
               
               {/* Panel Tabs */}
               <div className="h-9 bg-[#2d2d2d] border-b border-[#333] flex items-center px-2 flex-shrink-0">
