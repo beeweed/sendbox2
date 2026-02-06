@@ -91,7 +91,10 @@ export const CodeEditor: React.FC<EditorProps> = ({ file, onChange }) => {
           tabSize: 2,
           insertSpaces: true,
           lineNumbers: 'on',
-          renderLineHighlight: 'all',
+          renderLineHighlight: 'none',
+          highlightActiveIndentGuide: false,
+          occurrencesHighlight: 'off',
+          selectionHighlight: false,
           scrollbar: {
             vertical: 'visible',
             horizontal: 'visible',
