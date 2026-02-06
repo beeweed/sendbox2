@@ -67,7 +67,10 @@ export const useE2BSandbox = () => {
       for (const file of files) {
         const fullPath = path === '/' ? `/${file.name}` : `${path}/${file.name}`;
         
-        if (file.isDir) {
+        // E2B SDK uses 'type' property with value 'dir' for directories
+        const isDirectory = file.type === 'dir';
+        
+        if (isDirectory) {
           result.push({ path: fullPath, isDir: true });
           await listAllFiles(fullPath, result);
         } else {
