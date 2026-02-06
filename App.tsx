@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useE2BSandbox } from './hooks/useE2BSandbox';
 import { FileTree } from './components/FileTree';
-import { Editor } from './components/Editor';
+import { CodeEditor } from './components/Editor';
 import { Terminal } from './components/Terminal';
 import { PreviewPanel } from './components/PreviewPanel';
 import { SandboxControls } from './components/SandboxControls';
@@ -453,7 +453,7 @@ const App = () => {
           <div ref={editorAreaRef} className="flex-1 flex flex-col min-w-0">
             {/* Editor */}
             <div className="flex-1 overflow-hidden" style={{ minHeight: isBottomPanelOpen ? '100px' : '100%' }}>
-              <Editor 
+              <CodeEditor 
                   file={activeFile} 
                   onChange={updateFileContent}
               />
