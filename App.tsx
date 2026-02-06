@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useE2BSandbox } from './hooks/useE2BSandbox';
 import { FileTree } from './components/FileTree';
@@ -72,6 +72,15 @@ const App = () => {
   const [creationState, setCreationState] = useState<{ parentId: string; type: 'file' | 'folder' } | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+
+  // Resizable panel states
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [rightPanelWidth, setRightPanelWidth] = useState(450);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(256);
+  
+  // Resize refs
+  const isResizingRef = useRef<'sidebar' | 'right' | 'bottom' | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const activeFile = getActiveFile();
   const isSyncing = isLocalSyncing || isSandboxSyncing;
@@ -164,11 +173,57 @@ const App = () => {
     setCreationState(null);
   };
 
+  // Resize handlers
+  const handleMouseDown = useCallback((panel: 'sidebar' | 'right' | 'bottom') => {
+    isResizingRef.current = panel;
+    document.body.style.cursor = panel === 'bottom' ? 'row-resize' : 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    isResizingRef.current = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizingRef.current || !containerRef.current) return;
+
+    const containerRect = containerRef.current.getBoundingClientRect();
+
+    if (isResizingRef.current === 'sidebar') {
+      const newWidth = e.clientX - containerRect.left;
+      setSidebarWidth(Math.max(180, Math.min(500, newWidth)));
+    } else if (isResizingRef.current === 'right') {
+      const newWidth = containerRect.right - e.clientX;
+      setRightPanelWidth(Math.max(250, Math.min(800, newWidth)));
+    } else if (isResizingRef.current === 'bottom') {
+      const editorArea = containerRef.current.querySelector('[data-editor-area]');
+      if (editorArea) {
+        const editorRect = editorArea.getBoundingClientRect();
+        const newHeight = editorRect.bottom - e.clientY;
+        setBottomPanelHeight(Math.max(100, Math.min(500, newHeight)));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
   return (
-    <div className="flex h-screen w-screen bg-[#1e1e1e] text-gray-300 font-sans overflow-hidden">
+    <div ref={containerRef} className="flex h-screen w-screen bg-[#1e1e1e] text-gray-300 font-sans overflow-hidden">
       {/* Sidebar */}
       {isSidebarOpen && (
-        <div className="w-64 bg-[#252526] flex flex-col border-r border-[#333] flex-shrink-0">
+        <div 
+          className="bg-[#252526] flex flex-col border-r border-[#333] flex-shrink-0 relative"
+          style={{ width: sidebarWidth }}
+        >
           {/* E2B Sandbox Controls */}
           <SandboxControls
             apiKey={apiKey}
@@ -262,6 +317,12 @@ const App = () => {
               onCreate={handleCreateSubmit}
             />
           </div>
+          
+          {/* Sidebar Resize Handle */}
+          <div
+            onMouseDown={() => handleMouseDown('sidebar')}
+            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500 active:bg-blue-500 transition-colors z-10"
+          />
         </div>
       )}
 
@@ -349,9 +410,9 @@ const App = () => {
         {/* Center Area */}
         <div className="flex-1 flex overflow-hidden">
           {/* Editor + Bottom Panel */}
-          <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 flex flex-col min-w-0" data-editor-area>
             {/* Editor */}
-            <div className={`${isBottomPanelOpen ? 'flex-1' : 'flex-1'} overflow-hidden`} style={{ minHeight: isBottomPanelOpen ? '40%' : '100%' }}>
+            <div className="flex-1 overflow-hidden" style={{ minHeight: isBottomPanelOpen ? '100px' : '100%' }}>
               <Editor 
                   file={activeFile} 
                   onChange={updateFileContent}
@@ -360,7 +421,12 @@ const App = () => {
             
             {/* Bottom Panel (Terminal) */}
             {isBottomPanelOpen && (
-              <div className="h-64 border-t border-[#333] flex-shrink-0">
+              <div className="border-t border-[#333] flex-shrink-0 relative" style={{ height: bottomPanelHeight }}>
+                {/* Bottom Panel Resize Handle */}
+                <div
+                  onMouseDown={() => handleMouseDown('bottom')}
+                  className="absolute top-0 left-0 right-0 h-1 cursor-row-resize hover:bg-blue-500 active:bg-blue-500 transition-colors z-10"
+                />
                 <Terminal
                   isConnected={isConnected}
                   onCreateTerminal={createTerminal}
@@ -372,9 +438,18 @@ const App = () => {
             )}
           </div>
             
-          {/* Right Panel (Preview / AI) */}
+          {/* Right Panel (Preview) */}
           {isRightPanelOpen && (
-            <div className="w-[450px] border-l border-[#333] flex-shrink-0 flex flex-col">
+            <div 
+              className="border-l border-[#333] flex-shrink-0 flex flex-col relative"
+              style={{ width: rightPanelWidth }}
+            >
+              {/* Right Panel Resize Handle */}
+              <div
+                onMouseDown={() => handleMouseDown('right')}
+                className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-blue-500 active:bg-blue-500 transition-colors z-10"
+              />
+              
               {/* Panel Tabs */}
               <div className="h-9 bg-[#2d2d2d] border-b border-[#333] flex items-center px-2 flex-shrink-0">
                 <button
