@@ -174,8 +174,8 @@ const App = () => {
     setCreationState(null);
   };
 
-  // Resize handlers
-  const startResize = useCallback((panel: 'sidebar' | 'right' | 'bottom') => (e: React.MouseEvent) => {
+  // Resize handlers - supports both mouse and touch
+  const startResize = useCallback((panel: 'sidebar' | 'right' | 'bottom') => (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     setIsResizing(panel);
   }, []);
@@ -183,34 +183,58 @@ const App = () => {
   useEffect(() => {
     if (!isResizing) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
+    const getClientCoords = (e: MouseEvent | TouchEvent): { clientX: number; clientY: number } => {
+      if ('touches' in e && e.touches.length > 0) {
+        return { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY };
+      }
+      if ('changedTouches' in e && e.changedTouches.length > 0) {
+        return { clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY };
+      }
+      return { clientX: (e as MouseEvent).clientX, clientY: (e as MouseEvent).clientY };
+    };
 
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if (!containerRef.current) return;
+      
+      // Prevent scrolling on touch devices while resizing
+      if ('touches' in e) {
+        e.preventDefault();
+      }
+
+      const { clientX, clientY } = getClientCoords(e);
       const containerRect = containerRef.current.getBoundingClientRect();
 
       if (isResizing === 'sidebar') {
-        const newWidth = e.clientX - containerRect.left;
+        const newWidth = clientX - containerRect.left;
         setSidebarWidth(Math.max(180, Math.min(500, newWidth)));
       } else if (isResizing === 'right') {
-        const newWidth = containerRect.right - e.clientX;
+        const newWidth = containerRect.right - clientX;
         setRightPanelWidth(Math.max(250, Math.min(800, newWidth)));
       } else if (isResizing === 'bottom' && editorAreaRef.current) {
         const editorRect = editorAreaRef.current.getBoundingClientRect();
-        const newHeight = editorRect.bottom - e.clientY;
+        const newHeight = editorRect.bottom - clientY;
         setBottomPanelHeight(Math.max(100, Math.min(500, newHeight)));
       }
     };
 
-    const handleMouseUp = () => {
+    const handleEnd = () => {
       setIsResizing(null);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    // Mouse events
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+    // Touch events
+    document.addEventListener('touchmove', handleMove, { passive: false });
+    document.addEventListener('touchend', handleEnd);
+    document.addEventListener('touchcancel', handleEnd);
     
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleEnd);
+      document.removeEventListener('touchmove', handleMove);
+      document.removeEventListener('touchend', handleEnd);
+      document.removeEventListener('touchcancel', handleEnd);
     };
   }, [isResizing]);
 
@@ -222,121 +246,124 @@ const App = () => {
       className="flex h-screen w-screen bg-[#1e1e1e] text-gray-300 font-sans overflow-hidden"
       style={{ cursor: resizeCursor }}
     >
-      {/* Resize Overlay - prevents iframe from capturing mouse events */}
+      {/* Resize Overlay - prevents iframe from capturing mouse/touch events */}
       {isResizing && (
-        <div className="fixed inset-0 z-50" style={{ cursor: resizeCursor }} />
+        <div className="fixed inset-0 z-50 touch-none" style={{ cursor: resizeCursor }} />
       )}
       {/* Sidebar */}
       {isSidebarOpen && (
-        <div 
-          className="bg-[#252526] flex flex-col border-r border-[#333] flex-shrink-0 relative"
-          style={{ width: sidebarWidth }}
-        >
-          {/* E2B Sandbox Controls */}
-          <SandboxControls
-            apiKey={apiKey}
-            isConnected={isConnected}
-            isConnecting={isConnecting}
-            sandboxId={sandboxId}
-            error={sandboxError}
-            onApiKeyChange={setApiKey}
-            onCreateSandbox={createSandbox}
-            onDisconnect={disconnectSandbox}
-          />
-
-          {/* Sync Controls */}
-          {isConnected && (
-            <div className="px-3 py-2 border-b border-[#333]">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wide">File Sync</span>
-                {isSyncing && (
-                  <Loader2 size={12} className="animate-spin text-blue-400" />
-                )}
-                {syncStatus === 'success' && !isSyncing && (
-                  <span className="text-[10px] text-green-400">✓ Synced</span>
-                )}
-              </div>
-              <div className="flex space-x-1">
-                <button
-                  onClick={handlePushToSandbox}
-                  disabled={isSyncing}
-                  className="flex-1 flex items-center justify-center px-2 py-1.5 bg-[#333] hover:bg-[#444] rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Push local files to sandbox"
-                >
-                  <Upload size={12} className="mr-1" />
-                  Push
-                </button>
-                <button
-                  onClick={handlePullFromSandbox}
-                  disabled={isSyncing}
-                  className="flex-1 flex items-center justify-center px-2 py-1.5 bg-[#333] hover:bg-[#444] rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Pull files from sandbox"
-                >
-                  <Download size={12} className="mr-1" />
-                  Pull
-                </button>
-                <button
-                  onClick={handleFullSync}
-                  disabled={isSyncing}
-                  className="flex items-center justify-center px-2 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Sync files with sandbox"
-                >
-                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                </button>
-              </div>
-              {lastSyncTime && (
-                <p className="text-[10px] text-gray-500 mt-1.5 text-center">
-                  Last sync: {lastSyncTime.toLocaleTimeString()}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Sidebar Header */}
-          <div className="h-12 flex items-center justify-between px-4 border-b border-[#333]">
-            <span className="text-xs font-bold tracking-wider text-gray-400 uppercase">Explorer</span>
-            <div className="flex space-x-2">
-               <button 
-                onClick={() => handleStartCreating('root', 'folder')}
-                className="hover:text-white text-gray-500" title="New Root Folder"
-              >
-                 <FolderPlus size={16}/>
-               </button>
-               <button 
-                onClick={() => handleStartCreating('root', 'file')}
-                className="hover:text-white text-gray-500" title="New Root File"
-              >
-                 <FilePlus size={16}/>
-               </button>
-            </div>
-          </div>
-
-          {/* File Tree */}
-          <div className="flex-1 overflow-y-auto py-2">
-            <FileTree
-              parentId="root"
-              files={files}
-              activeFileId={activeFileId}
-              creationState={creationState}
-              onToggleFolder={toggleFolder}
-              onOpenFile={openFile}
-              onStartCreating={handleStartCreating}
-              onCancelCreating={handleCancelCreating}
-              onCreate={handleCreateSubmit}
+        <>
+          <div 
+            className="bg-[#252526] flex flex-col border-r border-[#333] flex-shrink-0"
+            style={{ width: sidebarWidth }}
+          >
+            {/* E2B Sandbox Controls */}
+            <SandboxControls
+              apiKey={apiKey}
+              isConnected={isConnected}
+              isConnecting={isConnecting}
+              sandboxId={sandboxId}
+              error={sandboxError}
+              onApiKeyChange={setApiKey}
+              onCreateSandbox={createSandbox}
+              onDisconnect={disconnectSandbox}
             />
+
+            {/* Sync Controls */}
+            {isConnected && (
+              <div className="px-3 py-2 border-b border-[#333]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">File Sync</span>
+                  {isSyncing && (
+                    <Loader2 size={12} className="animate-spin text-blue-400" />
+                  )}
+                  {syncStatus === 'success' && !isSyncing && (
+                    <span className="text-[10px] text-green-400">✓ Synced</span>
+                  )}
+                </div>
+                <div className="flex space-x-1">
+                  <button
+                    onClick={handlePushToSandbox}
+                    disabled={isSyncing}
+                    className="flex-1 flex items-center justify-center px-2 py-1.5 bg-[#333] hover:bg-[#444] rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Push local files to sandbox"
+                  >
+                    <Upload size={12} className="mr-1" />
+                    Push
+                  </button>
+                  <button
+                    onClick={handlePullFromSandbox}
+                    disabled={isSyncing}
+                    className="flex-1 flex items-center justify-center px-2 py-1.5 bg-[#333] hover:bg-[#444] rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Pull files from sandbox"
+                  >
+                    <Download size={12} className="mr-1" />
+                    Pull
+                  </button>
+                  <button
+                    onClick={handleFullSync}
+                    disabled={isSyncing}
+                    className="flex items-center justify-center px-2 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Sync files with sandbox"
+                  >
+                    <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+                {lastSyncTime && (
+                  <p className="text-[10px] text-gray-500 mt-1.5 text-center">
+                    Last sync: {lastSyncTime.toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Sidebar Header */}
+            <div className="h-12 flex items-center justify-between px-4 border-b border-[#333]">
+              <span className="text-xs font-bold tracking-wider text-gray-400 uppercase">Explorer</span>
+              <div className="flex space-x-2">
+                 <button 
+                  onClick={() => handleStartCreating('root', 'folder')}
+                  className="hover:text-white text-gray-500" title="New Root Folder"
+                >
+                   <FolderPlus size={16}/>
+                 </button>
+                 <button 
+                  onClick={() => handleStartCreating('root', 'file')}
+                  className="hover:text-white text-gray-500" title="New Root File"
+                >
+                   <FilePlus size={16}/>
+                 </button>
+              </div>
+            </div>
+
+            {/* File Tree */}
+            <div className="flex-1 overflow-y-auto py-2">
+              <FileTree
+                parentId="root"
+                files={files}
+                activeFileId={activeFileId}
+                creationState={creationState}
+                onToggleFolder={toggleFolder}
+                onOpenFile={openFile}
+                onStartCreating={handleStartCreating}
+                onCancelCreating={handleCancelCreating}
+                onCreate={handleCreateSubmit}
+              />
+            </div>
           </div>
           
-          {/* Sidebar Resize Handle */}
+          {/* Sidebar Resize Handle - separate element in flex flow */}
           <div
             onMouseDown={startResize('sidebar')}
-            className={`absolute top-0 -right-1 w-3 h-full cursor-col-resize z-20 group flex items-center justify-center
-              ${isResizing === 'sidebar' ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+            onTouchStart={startResize('sidebar')}
+            className={`w-3 cursor-col-resize flex-shrink-0 flex items-center justify-center group touch-none
+              ${isResizing === 'sidebar' ? 'bg-blue-500' : 'bg-[#333] hover:bg-blue-500/50 active:bg-blue-500/50'}`}
           >
-            <div className={`w-0.5 h-8 rounded-full transition-colors
-              ${isResizing === 'sidebar' ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'}`} 
+            <div className={`w-0.5 h-16 rounded-full transition-colors
+              ${isResizing === 'sidebar' ? 'bg-white' : 'bg-transparent group-hover:bg-blue-400'}`} 
             />
           </div>
-        </div>
+        </>
       )}
 
       {/* Main Content */}
@@ -434,70 +461,76 @@ const App = () => {
             
             {/* Bottom Panel (Terminal) */}
             {isBottomPanelOpen && (
-              <div className="border-t border-[#333] flex-shrink-0 relative" style={{ height: bottomPanelHeight }}>
-                {/* Bottom Panel Resize Handle */}
+              <>
+                {/* Bottom Panel Resize Handle - separate element in flex flow */}
                 <div
                   onMouseDown={startResize('bottom')}
-                  className={`absolute -top-1.5 left-0 right-0 h-3 cursor-row-resize z-20 group flex items-center justify-center
-                    ${isResizing === 'bottom' ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+                  onTouchStart={startResize('bottom')}
+                  className={`h-3 cursor-row-resize flex-shrink-0 flex items-center justify-center group touch-none
+                    ${isResizing === 'bottom' ? 'bg-blue-500' : 'bg-[#333] hover:bg-blue-500/50 active:bg-blue-500/50'}`}
                 >
-                  <div className={`h-0.5 w-12 rounded-full transition-colors
-                    ${isResizing === 'bottom' ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'}`} 
+                  <div className={`h-0.5 w-16 rounded-full transition-colors
+                    ${isResizing === 'bottom' ? 'bg-white' : 'bg-transparent group-hover:bg-blue-400'}`} 
                   />
                 </div>
-                <Terminal
-                  isConnected={isConnected}
-                  onCreateTerminal={createTerminal}
-                  onSendInput={sendTerminalInput}
-                  onResize={resizeTerminal}
-                  onCommandComplete={handlePullFromSandbox}
-                />
-              </div>
+                <div className="flex-shrink-0 overflow-hidden" style={{ height: bottomPanelHeight }}>
+                  <Terminal
+                    isConnected={isConnected}
+                    onCreateTerminal={createTerminal}
+                    onSendInput={sendTerminalInput}
+                    onResize={resizeTerminal}
+                    onCommandComplete={handlePullFromSandbox}
+                  />
+                </div>
+              </>
             )}
           </div>
             
           {/* Right Panel (Preview) */}
           {isRightPanelOpen && (
-            <div 
-              className="border-l border-[#333] flex-shrink-0 flex flex-col relative"
-              style={{ width: rightPanelWidth }}
-            >
-              {/* Right Panel Resize Handle */}
+            <>
+              {/* Right Panel Resize Handle - separate element in flex flow */}
               <div
                 onMouseDown={startResize('right')}
-                className={`absolute top-0 -left-1 w-3 h-full cursor-col-resize z-20 group flex items-center justify-center
-                  ${isResizing === 'right' ? 'bg-blue-500/50' : 'hover:bg-blue-500/30'}`}
+                onTouchStart={startResize('right')}
+                className={`w-3 cursor-col-resize flex-shrink-0 flex items-center justify-center group touch-none
+                  ${isResizing === 'right' ? 'bg-blue-500' : 'bg-[#333] hover:bg-blue-500/50 active:bg-blue-500/50'}`}
               >
-                <div className={`w-0.5 h-8 rounded-full transition-colors
-                  ${isResizing === 'right' ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'}`} 
+                <div className={`w-0.5 h-16 rounded-full transition-colors
+                  ${isResizing === 'right' ? 'bg-white' : 'bg-transparent group-hover:bg-blue-400'}`} 
                 />
               </div>
               
-              {/* Panel Tabs */}
-              <div className="h-9 bg-[#2d2d2d] border-b border-[#333] flex items-center px-2 flex-shrink-0">
-                <button
-                  onClick={() => setRightPanelTab('preview')}
-                  className={`px-3 py-1 text-xs rounded ${rightPanelTab === 'preview' ? 'bg-[#1e1e1e] text-blue-400' : 'text-gray-500 hover:text-white'}`}
-                >
-                  <Globe size={12} className="inline mr-1" />
-                  Preview
-                </button>
-                <button
-                  onClick={() => setIsRightPanelOpen(false)}
-                  className="ml-auto p-1 text-gray-500 hover:text-white"
-                >
-                  <X size={14} />
-                </button>
+              <div 
+                className="flex-shrink-0 flex flex-col"
+                style={{ width: rightPanelWidth }}
+              >
+                {/* Panel Tabs */}
+                <div className="h-9 bg-[#2d2d2d] border-b border-[#333] flex items-center px-2 flex-shrink-0">
+                  <button
+                    onClick={() => setRightPanelTab('preview')}
+                    className={`px-3 py-1 text-xs rounded ${rightPanelTab === 'preview' ? 'bg-[#1e1e1e] text-blue-400' : 'text-gray-500 hover:text-white'}`}
+                  >
+                    <Globe size={12} className="inline mr-1" />
+                    Preview
+                  </button>
+                  <button
+                    onClick={() => setIsRightPanelOpen(false)}
+                    className="ml-auto p-1 text-gray-500 hover:text-white"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                
+                {/* Panel Content */}
+                <div className="flex-1 overflow-hidden">
+                  <PreviewPanel
+                    sandboxId={sandboxId}
+                    isConnected={isConnected}
+                  />
+                </div>
               </div>
-              
-              {/* Panel Content */}
-              <div className="flex-1 overflow-hidden">
-                <PreviewPanel
-                  sandboxId={sandboxId}
-                  isConnected={isConnected}
-                />
-              </div>
-            </div>
+            </>
           )}
         </div>
 
