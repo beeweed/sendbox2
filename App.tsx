@@ -56,6 +56,7 @@ const App = () => {
     createTerminal,
     sendTerminalInput,
     resizeTerminal,
+    closeTerminal,
     writeFile,
     makeDirectory,
     deleteFile,
@@ -479,6 +480,7 @@ const App = () => {
                     onCreateTerminal={createTerminal}
                     onSendInput={sendTerminalInput}
                     onResize={resizeTerminal}
+                    onCloseTerminal={closeTerminal}
                     onCommandComplete={handlePullFromSandbox}
                   />
                 </div>

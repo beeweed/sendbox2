@@ -33,8 +33,7 @@ export const useE2BSandbox = () => {
   });
 
   const sandboxRef = useRef<Sandbox | null>(null);
-  const terminalPidRef = useRef<number | null>(null);
-  const dataCallbackRef = useRef<((data: Uint8Array) => void) | null>(null);
+  const terminalsRef = useRef<Map<string, { pid: number; dataCallback: (data: Uint8Array) => void }>>(new Map());
   const fileChangeListenersRef = useRef<((event: FileChangeEvent) => void)[]>([]);
   const watcherIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastFilesHashRef = useRef<Map<string, number>>(new Map());
@@ -313,6 +312,7 @@ export const useE2BSandbox = () => {
   }, [state.apiKey, startFileWatcher]);
 
   const createTerminal = useCallback(async (
+    terminalId: string,
     cols: number,
     rows: number,
     onData: (data: Uint8Array) => void
@@ -323,20 +323,19 @@ export const useE2BSandbox = () => {
     }
 
     try {
-      dataCallbackRef.current = onData;
-      
       const terminal = await sandboxRef.current.pty.create({
         cols,
         rows,
         onData: (data: Uint8Array) => {
-          if (dataCallbackRef.current) {
-            dataCallbackRef.current(data);
+          const terminalInfo = terminalsRef.current.get(terminalId);
+          if (terminalInfo?.dataCallback) {
+            terminalInfo.dataCallback(data);
           }
         },
         timeoutMs: 0, // No timeout for terminal
       });
 
-      terminalPidRef.current = terminal.pid;
+      terminalsRef.current.set(terminalId, { pid: terminal.pid, dataCallback: onData });
       return terminal;
     } catch (error: any) {
       console.error('Failed to create terminal:', error);
@@ -345,14 +344,15 @@ export const useE2BSandbox = () => {
     }
   }, []);
 
-  const sendTerminalInput = useCallback(async (data: string) => {
-    if (!sandboxRef.current || terminalPidRef.current === null) {
+  const sendTerminalInput = useCallback(async (terminalId: string, data: string) => {
+    const terminalInfo = terminalsRef.current.get(terminalId);
+    if (!sandboxRef.current || !terminalInfo) {
       return;
     }
 
     try {
       await sandboxRef.current.pty.sendInput(
-        terminalPidRef.current,
+        terminalInfo.pid,
         new TextEncoder().encode(data)
       );
     } catch (error: any) {
@@ -360,15 +360,30 @@ export const useE2BSandbox = () => {
     }
   }, []);
 
-  const resizeTerminal = useCallback(async (cols: number, rows: number) => {
-    if (!sandboxRef.current || terminalPidRef.current === null) {
+  const resizeTerminal = useCallback(async (terminalId: string, cols: number, rows: number) => {
+    const terminalInfo = terminalsRef.current.get(terminalId);
+    if (!sandboxRef.current || !terminalInfo) {
       return;
     }
 
     try {
-      await sandboxRef.current.pty.resize(terminalPidRef.current, { cols, rows });
+      await sandboxRef.current.pty.resize(terminalInfo.pid, { cols, rows });
     } catch (error: any) {
       console.error('Failed to resize terminal:', error);
+    }
+  }, []);
+
+  const closeTerminal = useCallback(async (terminalId: string) => {
+    const terminalInfo = terminalsRef.current.get(terminalId);
+    if (!sandboxRef.current || !terminalInfo) {
+      return;
+    }
+
+    try {
+      await sandboxRef.current.pty.kill(terminalInfo.pid);
+      terminalsRef.current.delete(terminalId);
+    } catch (error: any) {
+      console.error('Failed to close terminal:', error);
     }
   }, []);
 
@@ -473,7 +488,7 @@ export const useE2BSandbox = () => {
         console.error('Error killing sandbox:', error);
       }
       sandboxRef.current = null;
-      terminalPidRef.current = null;
+      terminalsRef.current.clear();
     }
 
     setState(prev => ({
@@ -497,6 +512,7 @@ export const useE2BSandbox = () => {
     createTerminal,
     sendTerminalInput,
     resizeTerminal,
+    closeTerminal,
     writeFile,
     readFile,
     listFiles,
