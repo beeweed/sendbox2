@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { Monaco } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { FileSystemItem } from '../types';
 import { FileCode } from 'lucide-react';
@@ -48,8 +48,26 @@ const getLanguageFromFileName = (fileName: string): string => {
 export const CodeEditor: React.FC<EditorProps> = ({ file, onChange }) => {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
+  const handleBeforeMount = useCallback((monaco: Monaco) => {
+    // Disable all TypeScript/JavaScript diagnostics
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: true,
+      noSuggestionDiagnostics: true,
+    });
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: true,
+      noSuggestionDiagnostics: true,
+    });
+  }, []);
+
+  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
     editorRef.current = editor;
+    
+    // Clear all existing markers/decorations
+    monaco.editor.setModelMarkers(editor.getModel()!, 'owner', []);
+    
     editor.focus();
   }, []);
 
@@ -79,6 +97,7 @@ export const CodeEditor: React.FC<EditorProps> = ({ file, onChange }) => {
         value={file.content || ''}
         theme="vs-dark"
         onChange={handleChange}
+        beforeMount={handleBeforeMount}
         onMount={handleEditorDidMount}
         options={{
           fontSize: 14,
@@ -91,10 +110,25 @@ export const CodeEditor: React.FC<EditorProps> = ({ file, onChange }) => {
           tabSize: 2,
           insertSpaces: true,
           lineNumbers: 'on',
+          // Disable ALL highlighting and decorations
           renderLineHighlight: 'none',
           highlightActiveIndentGuide: false,
           occurrencesHighlight: 'off',
           selectionHighlight: false,
+          renderValidationDecorations: 'off',
+          // Disable indent guides completely
+          guides: {
+            indentation: false,
+            highlightActiveIndentation: false,
+            bracketPairs: false,
+            bracketPairsHorizontal: false,
+          },
+          // Disable error/warning squiggles
+          renderWhitespace: 'none',
+          rulers: [],
+          overviewRulerBorder: false,
+          overviewRulerLanes: 0,
+          hideCursorInOverviewRuler: true,
           scrollbar: {
             vertical: 'visible',
             horizontal: 'visible',
@@ -106,11 +140,24 @@ export const CodeEditor: React.FC<EditorProps> = ({ file, onChange }) => {
           cursorBlinking: 'smooth',
           cursorSmoothCaretAnimation: 'on',
           smoothScrolling: true,
-          bracketPairColorization: { enabled: true },
+          bracketPairColorization: { enabled: false },
           autoClosingBrackets: 'always',
           autoClosingQuotes: 'always',
-          formatOnPaste: true,
-          formatOnType: true,
+          formatOnPaste: false,
+          formatOnType: false,
+          // Disable hover and suggestions that might show errors
+          hover: { enabled: false },
+          quickSuggestions: false,
+          parameterHints: { enabled: false },
+          suggestOnTriggerCharacters: false,
+          acceptSuggestionOnEnter: 'off',
+          tabCompletion: 'off',
+          wordBasedSuggestions: 'off',
+          // Disable code lens and other decorations
+          codeLens: false,
+          lightbulb: { enabled: 'off' },
+          folding: true,
+          glyphMargin: false,
         }}
         loading={
           <div className="flex items-center justify-center h-full bg-[#1e1e1e] text-gray-400">
