@@ -3,7 +3,6 @@ import { useFileSystem } from './hooks/useFileSystem';
 import { useE2BSandbox } from './hooks/useE2BSandbox';
 import { FileTree } from './components/FileTree';
 import { Editor } from './components/Editor';
-import { AIPanel } from './components/AIPanel';
 import { Terminal } from './components/Terminal';
 import { PreviewPanel } from './components/PreviewPanel';
 import { SandboxControls } from './components/SandboxControls';
@@ -12,7 +11,6 @@ import {
   X, 
   FolderPlus, 
   FilePlus,
-  MessageSquare,
   TerminalSquare,
   Globe,
   PanelRightOpen,
@@ -23,7 +21,7 @@ import {
   Loader2
 } from 'lucide-react';
 
-type RightPanelTab = 'ai' | 'preview';
+type RightPanelTab = 'preview';
 type BottomPanelTab = 'terminal';
 
 const App = () => {
@@ -337,18 +335,6 @@ const App = () => {
                 <Globe size={16} />
              </button>
              
-             {/* AI Assistant Toggle */}
-             <button 
-                onClick={() => {
-                  setRightPanelTab('ai');
-                  setIsRightPanelOpen(!isRightPanelOpen || rightPanelTab !== 'ai');
-                }}
-                className={`p-1.5 rounded ${isRightPanelOpen && rightPanelTab === 'ai' ? 'bg-[#444] text-purple-400' : 'text-gray-500 hover:text-white'}`}
-                title="AI Assistant"
-             >
-                <MessageSquare size={16} />
-             </button>
-
              {/* Right Panel Toggle */}
              <button 
                 onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
@@ -399,13 +385,6 @@ const App = () => {
                   Preview
                 </button>
                 <button
-                  onClick={() => setRightPanelTab('ai')}
-                  className={`px-3 py-1 text-xs rounded ${rightPanelTab === 'ai' ? 'bg-[#1e1e1e] text-purple-400' : 'text-gray-500 hover:text-white'}`}
-                >
-                  <MessageSquare size={12} className="inline mr-1" />
-                  AI
-                </button>
-                <button
                   onClick={() => setIsRightPanelOpen(false)}
                   className="ml-auto p-1 text-gray-500 hover:text-white"
                 >
@@ -415,21 +394,10 @@ const App = () => {
               
               {/* Panel Content */}
               <div className="flex-1 overflow-hidden">
-                {rightPanelTab === 'preview' ? (
-                  <PreviewPanel
-                    sandboxId={sandboxId}
-                    isConnected={isConnected}
-                  />
-                ) : (
-                  <AIPanel 
-                    isOpen={true}
-                    onClose={() => setIsRightPanelOpen(false)}
-                    activeFile={activeFile}
-                    onUpdateFileContent={(content) => {
-                      if (activeFile) updateFileContent(activeFile.id, content);
-                    }}
-                  />
-                )}
+                <PreviewPanel
+                  sandboxId={sandboxId}
+                  isConnected={isConnected}
+                />
               </div>
             </div>
           )}
