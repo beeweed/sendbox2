@@ -1,20 +1,50 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# E2B Terminal
 
-# Run and deploy your AI Studio app
+A simple, terminal-only web application that connects to E2B cloud sandboxes. Get instant access to a cloud-based terminal environment to run commands, install packages, and execute code in an isolated container.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/1nbT0eL4of6lxFqy6pU9MpqCz7LGvOFmj
+- Single terminal interface - clean and focused
+- E2B sandbox integration
+- Auto-connect on sandbox creation
+- Fullscreen terminal mode
+- GitHub-inspired dark theme
 
-## Run Locally
+## Setup
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+
+2. Create a `.env` file in the project root:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Add your E2B API key to the `.env` file:
+   ```
+   VITE_E2B_API_KEY=your_e2b_api_key_here
+   ```
+   
+   Get your API key from [e2b.dev/dashboard](https://e2b.dev/dashboard)
+
+4. Run the app:
+   ```bash
+   npm run dev
+   ```
+
+## Usage
+
+1. Open the app in your browser (default: http://localhost:3000)
+2. Click "Create Sandbox" to start a new E2B cloud sandbox
+3. Use the terminal to run commands in the isolated environment
+4. Click "Stop" to terminate the sandbox when done
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_E2B_API_KEY` | Your E2B API key (required) |
