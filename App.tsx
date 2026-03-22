@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Sandbox } from 'e2b';
 import { 
   TerminalSquare,
@@ -13,10 +15,10 @@ import {
   Square, 
   Maximize2, 
   Minimize2,
-  RefreshCw
+  Clipboard,
+  ClipboardPaste
 } from 'lucide-react';
 
-// Get E2B API Key from environment variable
 const E2B_API_KEY = import.meta.env.VITE_E2B_API_KEY || '';
 
 // ============================================================================
@@ -95,6 +97,14 @@ const useE2BSandbox = () => {
       const terminal = await sandboxRef.current.pty.create({
         cols,
         rows,
+        envs: {
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          LANG: 'en_US.UTF-8',
+          LC_ALL: 'en_US.UTF-8',
+          FORCE_COLOR: '3',
+          TERM_PROGRAM: 'xterm',
+        },
         onData: (data: Uint8Array) => {
           if (terminalRef.current?.dataCallback) {
             terminalRef.current.dataCallback(data);
@@ -113,9 +123,7 @@ const useE2BSandbox = () => {
   }, []);
 
   const sendTerminalInput = useCallback(async (data: string) => {
-    if (!sandboxRef.current || !terminalRef.current) {
-      return;
-    }
+    if (!sandboxRef.current || !terminalRef.current) return;
 
     try {
       await sandboxRef.current.pty.sendInput(
@@ -127,10 +135,18 @@ const useE2BSandbox = () => {
     }
   }, []);
 
-  const resizeTerminal = useCallback(async (cols: number, rows: number) => {
-    if (!sandboxRef.current || !terminalRef.current) {
-      return;
+  const sendTerminalBinaryInput = useCallback(async (data: Uint8Array) => {
+    if (!sandboxRef.current || !terminalRef.current) return;
+
+    try {
+      await sandboxRef.current.pty.sendInput(terminalRef.current.pid, data);
+    } catch (error: any) {
+      console.error('Failed to send binary terminal input:', error);
     }
+  }, []);
+
+  const resizeTerminal = useCallback(async (cols: number, rows: number) => {
+    if (!sandboxRef.current || !terminalRef.current) return;
 
     try {
       await sandboxRef.current.pty.resize(terminalRef.current.pid, { cols, rows });
@@ -162,6 +178,7 @@ const useE2BSandbox = () => {
     createSandbox,
     createTerminal,
     sendTerminalInput,
+    sendTerminalBinaryInput,
     resizeTerminal,
     disconnectSandbox,
   };
@@ -175,6 +192,7 @@ interface TerminalComponentProps {
   isConnected: boolean;
   onCreateTerminal: (cols: number, rows: number, onData: (data: Uint8Array) => void) => Promise<any>;
   onSendInput: (data: string) => Promise<void>;
+  onSendBinaryInput: (data: Uint8Array) => Promise<void>;
   onResize: (cols: number, rows: number) => Promise<void>;
 }
 
@@ -182,12 +200,14 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
   isConnected,
   onCreateTerminal,
   onSendInput,
+  onSendBinaryInput,
   onResize,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalDivRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -199,14 +219,50 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
 
     const xterm = new XTerm({
       cursorBlink: true,
+      cursorStyle: 'bar',
+      cursorInactiveStyle: 'outline',
       fontSize: 14,
       fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
+      fontWeight: '400',
+      fontWeightBold: '700',
+      lineHeight: 1.2,
+      letterSpacing: 0,
+      scrollback: 10000,
+      smoothScrollDuration: 100,
+      macOptionIsMeta: true,
+      altClickMovesCursor: true,
+      convertEol: false,
+      allowProposedApi: true,
+      windowOptions: {
+        fullscreenWin: true,
+        getCellSizePixels: true,
+        getIconTitle: true,
+        getScreenSizeChars: true,
+        getScreenSizePixels: true,
+        getWinPosition: true,
+        getWinSizeChars: true,
+        getWinSizePixels: true,
+        getWinState: true,
+        getWinTitle: true,
+        maximizeWin: true,
+        minimizeWin: true,
+        popTitle: true,
+        pushTitle: true,
+        refreshWin: true,
+        restoreWin: true,
+        setWinLines: true,
+        setWinPosition: true,
+        setWinSizeChars: true,
+        setWinSizePixels: true,
+      },
       theme: {
         background: '#0d1117',
         foreground: '#c9d1d9',
         cursor: '#58a6ff',
         cursorAccent: '#0d1117',
         selectionBackground: '#264f78',
+        selectionForeground: '#ffffff',
+        selectionInactiveBackground: '#264f7840',
         black: '#484f58',
         red: '#ff7b72',
         green: '#3fb950',
@@ -224,12 +280,25 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
         brightCyan: '#56d4dd',
         brightWhite: '#f0f6fc',
       },
-      allowProposedApi: true,
-      scrollback: 10000,
     });
 
+    // Load addons
     const fitAddon = new FitAddon();
     xterm.loadAddon(fitAddon);
+
+    const unicode11Addon = new Unicode11Addon();
+    xterm.loadAddon(unicode11Addon);
+    xterm.unicode.activeVersion = '11';
+
+    const webLinksAddon = new WebLinksAddon((event, uri) => {
+      if (event.ctrlKey || event.metaKey) {
+        window.open(uri, '_blank', 'noopener,noreferrer');
+      }
+    }, {
+      urlRegex: /https?:\/\/[^\s"')\]}>]+/g,
+    });
+    xterm.loadAddon(webLinksAddon);
+
     xterm.open(terminalDivRef.current);
 
     xtermRef.current = xterm;
@@ -237,7 +306,7 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
 
     setTimeout(() => {
       fitAddon.fit();
-    }, 100);
+    }, 50);
 
     const cols = xterm.cols;
     const rows = xterm.rows;
@@ -247,15 +316,82 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
     });
 
     if (terminal) {
+      // Handle regular text input
       xterm.onData((data) => {
         onSendInput(data);
       });
+
+      // Handle binary data (special key sequences for TUI apps)
+      xterm.onBinary((data) => {
+        const buffer = new Uint8Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+          buffer[i] = data.charCodeAt(i) & 0xFF;
+        }
+        onSendBinaryInput(buffer);
+      });
+
+      // Clipboard: Ctrl+C copies when text is selected, otherwise sends SIGINT
+      xterm.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+        // Ctrl+C: Copy if selection exists
+        if (event.ctrlKey && event.key === 'c' && event.type === 'keydown') {
+          const selection = xterm.getSelection();
+          if (selection && selection.length > 0) {
+            navigator.clipboard.writeText(selection).catch(() => {});
+            xterm.clearSelection();
+            return false; // prevent sending to PTY
+          }
+          return true; // no selection => send SIGINT to PTY
+        }
+
+        // Ctrl+V: Paste from clipboard
+        if (event.ctrlKey && event.key === 'v' && event.type === 'keydown') {
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              onSendInput(text);
+            }
+          }).catch(() => {});
+          return false;
+        }
+
+        // Ctrl+Shift+C: Alternative copy
+        if (event.ctrlKey && event.shiftKey && event.key === 'C' && event.type === 'keydown') {
+          const selection = xterm.getSelection();
+          if (selection) {
+            navigator.clipboard.writeText(selection).catch(() => {});
+            xterm.clearSelection();
+          }
+          return false;
+        }
+
+        // Ctrl+Shift+V: Alternative paste
+        if (event.ctrlKey && event.shiftKey && event.key === 'V' && event.type === 'keydown') {
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              onSendInput(text);
+            }
+          }).catch(() => {});
+          return false;
+        }
+
+        return true;
+      });
+
+      // Paste event listener
+      terminalDivRef.current?.addEventListener('paste', (event) => {
+        event.preventDefault();
+        const text = event.clipboardData?.getData('text');
+        if (text) {
+          onSendInput(text);
+        }
+      });
+
       setIsReady(true);
     }
 
     setIsInitializing(false);
-  }, [onCreateTerminal, onSendInput]);
+  }, [onCreateTerminal, onSendInput, onSendBinaryInput]);
 
+  // Auto-initialize when connected
   useEffect(() => {
     if (isConnected && !xtermRef.current) {
       const timer = setTimeout(() => {
@@ -265,30 +401,52 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
     }
   }, [isConnected, initializeTerminal]);
 
+  // Debounced resize handler
   useEffect(() => {
     const handleResize = () => {
-      if (fitAddonRef.current && xtermRef.current) {
-        fitAddonRef.current.fit();
-        onResize(xtermRef.current.cols, xtermRef.current.rows);
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
       }
+      resizeTimeoutRef.current = setTimeout(() => {
+        if (fitAddonRef.current && xtermRef.current) {
+          try {
+            fitAddonRef.current.fit();
+            onResize(xtermRef.current.cols, xtermRef.current.rows);
+          } catch (e) {
+            console.error('Resize error:', e);
+          }
+        }
+      }, 80);
     };
 
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
+    };
   }, [onResize]);
 
+  // Re-fit on expand/collapse
   useEffect(() => {
     if (fitAddonRef.current && xtermRef.current) {
       setTimeout(() => {
         fitAddonRef.current?.fit();
+        if (xtermRef.current) {
+          onResize(xtermRef.current.cols, xtermRef.current.rows);
+        }
         xtermRef.current?.focus();
-      }, 100);
+      }, 150);
     }
-  }, [isExpanded]);
+  }, [isExpanded, onResize]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
       if (xtermRef.current) {
         xtermRef.current.dispose();
         xtermRef.current = null;
@@ -321,26 +479,58 @@ const TerminalComponent: React.FC<TerminalComponentProps> = ({
           )}
           {isReady && (
             <span className="ml-2 text-xs text-green-400 flex items-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 mr-1"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 mr-1 animate-pulse"></span>
               Connected
             </span>
           )}
+          <span className="ml-3 text-xs text-gray-600 hidden sm:inline">
+            256color • truecolor • UTF-8
+          </span>
         </div>
 
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="text-gray-400 hover:text-white p-1.5 hover:bg-[#30363d] rounded transition-colors"
-          title={isExpanded ? 'Minimize' : 'Maximize'}
-        >
-          {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-        </button>
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={() => {
+              const sel = xtermRef.current?.getSelection();
+              if (sel) {
+                navigator.clipboard.writeText(sel).catch(() => {});
+                xtermRef.current?.clearSelection();
+              }
+            }}
+            className="text-gray-400 hover:text-white p-1.5 hover:bg-[#30363d] rounded transition-colors"
+            title="Copy selection (Ctrl+C with selection)"
+          >
+            <Clipboard size={14} />
+          </button>
+          <button
+            onClick={() => {
+              navigator.clipboard.readText().then((text) => {
+                if (text) onSendInput(text);
+              }).catch(() => {});
+            }}
+            className="text-gray-400 hover:text-white p-1.5 hover:bg-[#30363d] rounded transition-colors"
+            title="Paste (Ctrl+V)"
+          >
+            <ClipboardPaste size={14} />
+          </button>
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-gray-400 hover:text-white p-1.5 hover:bg-[#30363d] rounded transition-colors"
+            title={isExpanded ? 'Minimize' : 'Maximize'}
+          >
+            {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 relative overflow-hidden">
         <div
           ref={terminalDivRef}
-          className="absolute inset-0 p-2"
-          style={{ minHeight: isExpanded ? 'calc(100vh - 40px)' : '100%' }}
+          className="absolute inset-0 terminal-container"
+          style={{ 
+            padding: '4px',
+            minHeight: isExpanded ? 'calc(100vh - 40px)' : '100%',
+          }}
         />
       </div>
     </div>
@@ -360,6 +550,7 @@ const App = () => {
     createSandbox,
     createTerminal,
     sendTerminalInput,
+    sendTerminalBinaryInput,
     resizeTerminal,
     disconnectSandbox,
   } = useE2BSandbox();
@@ -463,6 +654,7 @@ const App = () => {
             isConnected={isConnected}
             onCreateTerminal={createTerminal}
             onSendInput={sendTerminalInput}
+            onSendBinaryInput={sendTerminalBinaryInput}
             onResize={resizeTerminal}
           />
         ) : (
@@ -535,8 +727,11 @@ const App = () => {
             </span>
           )}
           <span>E2B Terminal</span>
+          <span className="text-gray-600">•</span>
+          <span className="text-gray-600">xterm-256color</span>
         </div>
         <div className="ml-auto flex items-center space-x-4">
+          <span className="text-gray-600 hidden sm:inline">Ctrl+Click links • Ctrl+C/V clipboard</span>
           {sandboxId && (
             <span className="text-gray-600">
               {sandboxId}

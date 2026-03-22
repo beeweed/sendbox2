@@ -29,16 +29,65 @@
         padding: 0;
         overflow: hidden;
       }
-      /* XTerm container styling */
+
+      /* XTerm container styling — critical for TUI/fullscreen apps */
       .xterm {
-        padding: 8px;
+        padding: 4px;
         height: 100%;
       }
       .xterm-viewport {
         overflow-y: auto !important;
+        scrollbar-width: thin;
+        scrollbar-color: #30363d #0d1117;
       }
       .xterm-screen {
         height: 100%;
+      }
+
+      /* Ensure box drawing characters render correctly */
+      .xterm-char-measure-element {
+        display: inline-block !important;
+      }
+
+      /* Smooth cursor for bar style */
+      .xterm-cursor-bar {
+        border-left-width: 2px !important;
+      }
+
+      /* Better link styling */
+      .xterm-underline-1 { text-decoration: underline; }
+      .xterm-underline-2 { text-decoration: double underline; }
+      .xterm-underline-3 { text-decoration: wavy underline; }
+      .xterm-underline-4 { text-decoration: dotted underline; }
+      .xterm-underline-5 { text-decoration: dashed underline; }
+
+      /* Selection styling */
+      .xterm .xterm-selection div {
+        background-color: rgba(38, 79, 120, 0.6) !important;
+      }
+
+      /* Terminal container reset — prevent inherited styles from breaking TUI layout */
+      .terminal-container {
+        line-height: normal;
+        font-variant-ligatures: none;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+      }
+
+      /* Override xterm-rows to ensure proper character grid alignment */
+      .xterm-rows {
+        font-feature-settings: "liga" 0, "calt" 0;
+      }
+
+      /* Ensure canvas renders at proper resolution */
+      .xterm canvas {
+        image-rendering: optimizeSpeed;
+      }
+
+      /* Link hover */
+      .xterm a:hover {
+        cursor: pointer;
       }
     </style>
   </head>
