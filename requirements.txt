@@ -1,0 +1,4 @@
+flask>=3.0
+flask-socketio>=5.3
+e2b>=2.12
+python-dotenv>=1.0

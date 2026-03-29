@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E2B Terminal</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/><rect x="2" y="5" width="20" height="14" rx="2"/>
+        </svg>
+        <h1 class="header-title">E2B Terminal</h1>
+      </div>
+
+      <div class="header-right">
+        <div class="status-indicator">
+          <span id="statusDot" class="status-dot disconnected"></span>
+          <span id="statusText" class="status-text">Disconnected</span>
+        </div>
+
+        <div id="sandboxBadge" class="sandbox-badge">
+          <span class="label">ID:</span>
+          <span id="sandboxIdText"></span>
+        </div>
+
+        <div id="controlButtons">
+          <button id="btnCreate" class="btn btn-create" {% if not has_api_key %}disabled{% endif %}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>Create Sandbox</span>
+          </button>
+          <button id="btnStop" class="btn btn-stop" style="display:none;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+            <span>Stop</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Error Banner -->
+    <div id="errorBanner" class="banner banner-error">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="errorText"></span>
+    </div>
+
+    <!-- API Key Warning -->
+    {% if not has_api_key %}
+    <div class="banner banner-warning visible">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span>
+        E2B API key not configured. Please create a <code>.env</code> file with <code>VITE_E2B_API_KEY=your_api_key</code>
+      </span>
+    </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Welcome Screen -->
+      <div id="welcomeScreen" class="welcome-screen">
+        <div class="welcome-icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/><rect x="2" y="5" width="20" height="14" rx="2"/>
+          </svg>
+        </div>
+        <h2 class="welcome-title">E2B Cloud Terminal</h2>
+        <p class="welcome-desc">
+          Create a sandbox to get instant access to a cloud-based terminal environment.
+          Run commands, install packages, and execute code in an isolated container.
+        </p>
+
+        {% if has_api_key %}
+        <button id="btnCreateWelcome" class="btn btn-create" style="padding: 12px 24px; font-size: 16px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>Create Sandbox</span>
+        </button>
+        {% else %}
+        <div class="setup-guide">
+          <p>To get started, configure your E2B API key:</p>
+          <ol class="setup-steps">
+            <li class="setup-step">
+              <span class="step-number">1</span>
+              <span>Get your API key from <a href="https://e2b.dev/dashboard" target="_blank" rel="noopener noreferrer">e2b.dev/dashboard</a></span>
+            </li>
+            <li class="setup-step">
+              <span class="step-number">2</span>
+              <span>Create a <code>.env</code> file in the project root</span>
+            </li>
+            <li class="setup-step">
+              <span class="step-number">3</span>
+              <span>Add <code>VITE_E2B_API_KEY=your_key</code></span>
+            </li>
+            <li class="setup-step">
+              <span class="step-number">4</span>
+              <span>Restart the server</span>
+            </li>
+          </ol>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Terminal -->
+      <div id="terminalWrapper" class="terminal-wrapper">
+        <div class="terminal-header">
+          <div class="terminal-header-left">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/><rect x="2" y="5" width="20" height="14" rx="2"/>
+            </svg>
+            <span class="terminal-label">Terminal</span>
+
+            <span id="termInitSpinner" class="spinner" style="display:none; color: var(--accent-blue);"></span>
+
+            <span id="termReady" class="terminal-ready">
+              <span class="dot"></span>
+              Connected
+            </span>
+
+            <span class="terminal-caps">256color &bull; truecolor &bull; UTF-8</span>
+          </div>
+
+          <div class="terminal-header-right">
+            <button id="btnCopy" class="btn-icon" title="Copy selection (Ctrl+C with selection)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+            </button>
+            <button id="btnPaste" class="btn-icon" title="Paste (Ctrl+V)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+              </svg>
+            </button>
+            <button id="btnFullscreen" class="btn-icon" title="Maximize">
+              <svg id="iconExpand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+              </svg>
+              <svg id="iconShrink" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="terminal-body">
+          <div id="terminal-container" class="terminal-container"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-left">
+        <span id="footerActive" class="footer-active">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          Sandbox Active
+        </span>
+        <span>E2B Terminal</span>
+        <span style="color: var(--text-muted);">&bull;</span>
+        <span style="color: var(--text-muted);">xterm-256color</span>
+      </div>
+      <div class="footer-right">
+        <span class="shortcut-hint" style="color: var(--text-muted);">Ctrl+Click links &bull; Ctrl+C/V clipboard</span>
+        <span id="footerSandboxId" style="color: var(--text-muted);"></span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0.8.0/lib/addon-unicode11.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+  <script src="/static/js/terminal.js"></script>
+</body>
+</html>

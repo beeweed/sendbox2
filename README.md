@@ -9,14 +9,16 @@ A simple, terminal-only web application that connects to E2B cloud sandboxes. Ge
 - Auto-connect on sandbox creation
 - Fullscreen terminal mode
 - GitHub-inspired dark theme
+- Real-time WebSocket communication
+- Python backend (Flask + Socket.IO)
 
 ## Setup
 
-**Prerequisites:** Node.js
+**Prerequisites:** Python 3.9+
 
 1. Install dependencies:
    ```bash
-   npm install
+   pip install -r requirements.txt
    ```
 
 2. Create a `.env` file in the project root:
@@ -33,7 +35,7 @@ A simple, terminal-only web application that connects to E2B cloud sandboxes. Ge
 
 4. Run the app:
    ```bash
-   npm run dev
+   python app.py
    ```
 
 ## Usage
@@ -48,3 +50,11 @@ A simple, terminal-only web application that connects to E2B cloud sandboxes. Ge
 | Variable | Description |
 |----------|-------------|
 | `VITE_E2B_API_KEY` | Your E2B API key (required) |
+| `PORT` | Server port (default: 3000) |
+
+## Architecture
+
+- **Backend**: Python Flask + Flask-SocketIO
+- **Frontend**: Static HTML/CSS/JS with xterm.js
+- **Communication**: WebSocket (Socket.IO) for real-time terminal I/O
+- **Terminal**: xterm.js with fit, unicode11, and web-links addons
